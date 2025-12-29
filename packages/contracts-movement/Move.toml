@@ -1,0 +1,17 @@
+[package]
+name = "intent_protocol"
+version = "1.0.0"
+authors = ["Intent Protocol Team"]
+
+[addresses]
+intent_protocol = "0xd096763b2fbbbf7175a3aca30917719d8041a4ad61b85e64410c9353aa79b96d"
+
+[dependencies.AptosFramework]
+git = "https://github.com/movementlabsxyz/aptos-core.git"
+rev = "movement"
+subdir = "aptos-move/framework/aptos-framework"
+
+[dependencies.AptosStdlib]
+git = "https://github.com/movementlabsxyz/aptos-core.git"
+rev = "movement"
+subdir = "aptos-move/framework/aptos-stdlib"
