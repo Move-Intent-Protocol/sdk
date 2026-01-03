@@ -1,0 +1,24 @@
+# Foundry files
+/out
+/cache
+/broadcast
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies (if using git submodules)
+# /lib
+
+# Coverage
+lcov.info
+coverage
