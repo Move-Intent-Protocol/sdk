@@ -1,6 +1,6 @@
 
 import { Link } from 'react-router-dom';
-import { Twitter, Disc, Github, BookOpen } from 'lucide-react';
+import { Twitter, Github, BookOpen } from 'lucide-react';
 
 export function Footer() {
     return (

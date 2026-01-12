@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
-import { Activity, Users, Clock, ArrowUpRight, CheckCircle2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Activity, Users, Clock, CheckCircle2 } from 'lucide-react';
+
 
 const stats = [
     {

@@ -7,7 +7,7 @@ import { FAQ } from '@/components/landing/FAQ';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { LivePulse } from '@/components/landing/LivePulse';
-import { useRef } from 'react';
+
 
 // Hero Section Component
 const Hero = () => {
