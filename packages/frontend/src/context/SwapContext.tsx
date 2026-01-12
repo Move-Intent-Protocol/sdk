@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { toast } from 'sonner';
 import { useWallet } from '@/context/wallet-provider'; // Use custom provider
 import { signAndSubmitTransaction as adapterSignTransaction, signMessage as adapterSignMessage } from '@/lib/wallet/adapter';
 import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
@@ -141,18 +142,51 @@ export function SwapProvider({ children }: { children: ReactNode }) {
         const saved = localStorage.getItem('intent_orders');
         if (!saved) return [];
 
-        let orders = JSON.parse(saved);
+        let localOrders = JSON.parse(saved);
         // Filter for current account
-        orders = orders.filter((o: any) => o.maker === account.address.toString());
+        localOrders = localOrders.filter((o: any) => o.maker === account.address.toString());
+
+        // Fetch Relayer Activity to cross-reference
+        let relayerActivity: any[] = [];
+        try {
+            const res = await axios.get(`${RELAYER_URL}/activity`);
+            if (res.data && res.data.orders) {
+                relayerActivity = res.data.orders;
+            }
+        } catch (e) {
+            console.warn("Failed to fetch relayer activity for status check", e);
+        }
+
+        // Create a map of Nonce -> RelayerOrder for the current user
+        // We match by Nonce because it's robust even if hash calculation differs
+        const relayerMap = new Map<string, any>();
+        relayerActivity.forEach((rOrder: any) => {
+            // Check if this relayer order belongs to current user
+            if (rOrder.intent.maker === account.address.toString()) {
+                relayerMap.set(rOrder.intent.nonce.toString(), rOrder);
+            }
+        });
 
         // Update statuses
-        const updatedOrders = await Promise.all(orders.map(async (order: any) => {
-            // Logic to check status
-            // 1. Check if filled
+        const updatedOrders = await Promise.all(localOrders.map(async (order: any) => {
             try {
+                // 0. Check consistency with Relayer first (Trust Relayer for recent success)
+                const matchedRelayerOrder = relayerMap.get(order.nonce.toString());
+
+                if (matchedRelayerOrder) {
+                    if (matchedRelayerOrder.success) {
+                        if (order.status !== 'FILLED') {
+                            refreshBalance(); // Update balance if status changing
+                        }
+                        // Update local hash to match Relayer (if different) to prevent future issues
+                        const finalHash = matchedRelayerOrder.hash || order.order_hash;
+                        return { ...order, status: 'FILLED', order_hash: finalHash };
+                    }
+                }
+
                 if (order.status === 'FILLED' || order.status === 'CANCELLED') return order;
 
-                // Check is_order_filled
+                // 1. Check is_order_filled on-chain
                 const isFilledVal = await client.view({
                     payload: {
                         function: `${INTENT_SWAP_ADDRESS}::swap::is_order_filled`,
@@ -161,9 +195,15 @@ export function SwapProvider({ children }: { children: ReactNode }) {
                 });
 
                 if (isFilledVal[0]) {
-                    // Trigger balance refresh if we just detected the fill
                     if (order.status !== 'FILLED') {
                         refreshBalance();
+                        toast.success("Order Filled!", {
+                            description: `Your order for ${order.buy_amount} ${order.buy_token} has been filled.`,
+                            action: {
+                                label: "View on Explorer",
+                                onClick: () => window.open(`https://explorer.movementlabs.xyz/txn/${order.order_hash}?network=testnet`, '_blank')
+                            }
+                        });
                     }
                     return { ...order, status: 'FILLED' };
                 }
@@ -177,10 +217,20 @@ export function SwapProvider({ children }: { children: ReactNode }) {
                 });
                 const currentNonce = Number(nonceVal[0]);
 
-                // Debug logs for nonce check
                 console.log(`Checking Order: ${order.order_hash} | Order Nonce: ${order.nonce} | Current Chain Nonce: ${currentNonce}`);
 
                 if (order.nonce && Number(order.nonce) < currentNonce) {
+                    // Only mark failed if Relayer explicitly says failed, OR if we are very old.
+                    // If matchedRelayerOrder exists and !success => It failed/reverted.
+                    if (matchedRelayerOrder && !matchedRelayerOrder.success) {
+                        return { ...order, status: 'FAILED' };
+                    }
+
+                    // If NOT in relayer activity, we assume Cancelled/Replaced (legacy logic)
+                    // But to be safer against hash mismatch on recently filled orders that haven't indexed yet,
+                    // we could hesitate. But user complaint is about PERSISTENT mismatch.
+                    // If Relayer has it as success, we handled it above.
+                    // If Relayer doesn't have it, and nonce passed... it's likely cancelled.
                     console.log(`-> Marking as CANCELLED (Nonce ${order.nonce} < ${currentNonce})`);
                     return { ...order, status: 'CANCELLED' };
                 }
@@ -198,8 +248,25 @@ export function SwapProvider({ children }: { children: ReactNode }) {
             }
         }));
 
-        // Save updated statuses back to local storage (optional, or just return)
-        // localStorage.setItem('intent_orders', JSON.stringify(updatedOrders)); // Be careful not to overwrite other accounts if we filtered
+        // Save updated statuses back to local storage
+        // We need to merge updatedOrders with the original list (which might contain other accounts' orders)
+        const currentSaved = localStorage.getItem('intent_orders');
+        const allOrders = currentSaved ? JSON.parse(currentSaved) : [];
+
+        // Create a map of updated orders for easy lookup
+        // Key by nonce + maker to be robust
+        const updatedMap = new Map(updatedOrders.map((o: any) => [o.nonce.toString() + o.maker, o]));
+
+        // Merge: Use updated version if exists, else keep original
+        const mergedOrders = allOrders.map((existing: any) => {
+            const key = existing.nonce.toString() + existing.maker;
+            if (updatedMap.has(key)) {
+                return updatedMap.get(key);
+            }
+            return existing;
+        });
+
+        localStorage.setItem('intent_orders', JSON.stringify(mergedOrders));
 
         return updatedOrders.sort((a: any, b: any) => b.timestamp - a.timestamp);
     };

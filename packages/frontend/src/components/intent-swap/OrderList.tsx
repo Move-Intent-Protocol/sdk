@@ -4,6 +4,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDistanceToNow } from 'date-fns';
+import { TOKENS } from './forms/TokenSelector';
+
+const getToken = (typeOrSymbol: string) => {
+    return TOKENS.find(t => t.type === typeOrSymbol || t.symbol === typeOrSymbol) || {
+        symbol: "UNK",
+        decimals: 8,
+        icon: "",
+        type: typeOrSymbol
+    };
+};
 
 export interface Order {
     order_hash: string;
@@ -62,9 +72,15 @@ export function OrderList({ orders, onSelectOrder, onCancelOrder, isLoading }: O
                                     Swap
                                 </TableCell>
                                 <TableCell>
-                                    <div className="flex flex-col">
-                                        <span className="text-red-500 font-mono">-{order.sell_amount}</span>
-                                        <span className="text-green-500 font-mono">+{order.buy_amount}</span>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="flex items-center gap-1.5">
+                                            {getToken(order.sell_token).icon && <img src={getToken(order.sell_token).icon} className="w-4 h-4 rounded-full" />}
+                                            <span className="text-red-500 font-mono text-xs">-{order.sell_amount}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            {getToken(order.buy_token).icon && <img src={getToken(order.buy_token).icon} className="w-4 h-4 rounded-full" />}
+                                            <span className="text-green-500 font-mono text-xs">+{order.buy_amount}</span>
+                                        </div>
                                     </div>
                                 </TableCell>
                                 <TableCell>

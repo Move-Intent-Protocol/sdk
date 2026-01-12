@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,12 +68,16 @@ export function SwapCard() {
                 buyDecimals: buyToken.decimals
             });
 
-            // Show toast or alert
-            alert("Order Submitted Successfully!");
+            // Show toast
+            toast.success("Order Submitted", {
+                description: `Swapping ${sellAmount} ${sellToken.symbol} for ${buyAmount} ${buyToken.symbol}`,
+            });
             setSellAmount("");
         } catch (e: any) {
             console.error(e);
-            alert("Swap Failed: " + (e.message || "Unknown error"));
+            toast.error("Swap Failed", {
+                description: e.message || "Unknown error occurred"
+            });
         }
     };
 

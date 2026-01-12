@@ -11,7 +11,7 @@ import { ArrowRight, ExternalLink } from 'lucide-react';
 export function ResolverPage() {
     const { relayerUrl } = useSwap();
     const [orders, setOrders] = useState<any[]>([]);
-    const [health, setHealth] = useState<any>(null);
+    const [health, setHealth] = useState<any>(undefined);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -75,8 +75,22 @@ export function ResolverPage() {
                 </h1>
                 <div className="flex flex-wrap gap-2 items-center">
                     <div className="flex gap-2 items-center bg-zinc-900/80 px-4 py-2 rounded-full border border-zinc-800">
-                        <div className={`w-3 h-3 rounded-full ${health ? 'bg-green-500' : 'bg-red-500'} ${health && 'animate-pulse'}`} />
-                        <span className="text-sm font-mono">{health ? 'ONLINE' : 'OFFLINE'}</span>
+                        {health === undefined ? (
+                            <>
+                                <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse" />
+                                <span className="text-sm font-mono text-yellow-500">CONNECTING</span>
+                            </>
+                        ) : health ? (
+                            <>
+                                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+                                <span className="text-sm font-mono text-green-500">ONLINE</span>
+                            </>
+                        ) : (
+                            <>
+                                <div className="w-3 h-3 rounded-full bg-red-500" />
+                                <span className="text-sm font-mono text-red-500">OFFLINE</span>
+                            </>
+                        )}
                     </div>
                     {health?.balances && health.balances.map((b: any) => (
                         <div key={b.symbol} className="bg-zinc-900/60 px-3 py-1.5 rounded-full border border-zinc-800">
