@@ -1,0 +1,29 @@
+{
+    "name": "@intent-protocol/resolver",
+    "version": "0.1.0",
+    "description": "Resolver SDK for fetching and filling Intent Swap orders",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "movement",
+        "intent",
+        "swap",
+        "resolver",
+        "relayer"
+    ],
+    "author": "Intent Protocol",
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "dependencies": {
+        "@intent-protocol/common": "^0.1.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0"
+    }
+}
