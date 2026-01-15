@@ -1,0 +1,27 @@
+{
+    "name": "@intent-protocol/common",
+    "version": "0.1.0",
+    "description": "Shared types and utilities for Move Intent Swap",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "prepublishOnly": "npm run build"
+    },
+    "keywords": [
+        "movement",
+        "intent",
+        "swap"
+    ],
+    "author": "Intent Protocol",
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "dependencies": {
+        "@noble/hashes": "^1.3.3"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0"
+    }
+}
