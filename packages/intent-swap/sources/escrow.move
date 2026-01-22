@@ -25,6 +25,7 @@ module intent_swap::escrow {
     const E_PAUSED: u64 = 205;
 
     friend intent_swap::swap;
+    friend intent_swap::limit_order;
 
     // ==================== Structs ====================
 
