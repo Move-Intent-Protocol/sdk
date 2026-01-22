@@ -2,11 +2,21 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Menu } from 'lucide-react';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { EscrowBalance } from '../intent-swap/metrics/EscrowBalance';
 import { ConnectWalletButton } from '@/components/connect-wallet-button';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useWallet } from '@/context/wallet-provider';
+
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ChevronDown } from "lucide-react"
 
 export function Header() {
     const [isOpen, setIsOpen] = useState(false);
@@ -55,11 +65,38 @@ export function Header() {
                             {item.name}
                         </Link>
                     ))}
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-primary transition-colors focus:outline-none">
+                            More <ChevronDown className="h-4 w-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                                <Link to="/add-token" className="cursor-pointer w-full">Add New Token</Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link to="/kb" className="cursor-pointer w-full">Knowledge Base</Link>
+                            </DropdownMenuItem>
+                            {/* Future "More" items can go here */}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </nav>
 
                 {/* Actions */}
                 <div className="hidden md:flex items-center gap-4">
                     <ModeToggle />
+                    {connected && (
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                    Deposit/Withdraw
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="p-0 border-0 bg-transparent shadow-none max-w-[420px]">
+                                <EscrowBalance className="w-full border shadow-sm" />
+                            </DialogContent>
+                        </Dialog>
+                    )}
                     <ConnectWalletButton />
                 </div>
 
@@ -73,7 +110,11 @@ export function Header() {
                     <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                         <div className="flex flex-col gap-8 mt-8">
                             <nav className="flex flex-col gap-4">
-                                {navItems.map((item) => (
+                                {[
+                                    ...navItems,
+                                    { name: 'Add New Token', path: '/add-token' },
+                                    { name: 'Knowledge Base', path: '/kb' }
+                                ].map((item) => (
                                     <Link
                                         key={item.path}
                                         to={item.path}
@@ -87,7 +128,19 @@ export function Header() {
                                     </Link>
                                 ))}
                             </nav>
-                            <div className="pt-4 border-t">
+                            <div className="pt-4 border-t flex flex-col gap-4">
+                                {connected && (
+                                    <Dialog>
+                                        <DialogTrigger asChild>
+                                            <Button variant="outline" className="w-full">
+                                                Deposit/Withdraw
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="p-0 border-0 bg-transparent shadow-none max-w-[420px]">
+                                            <EscrowBalance className="w-full border shadow-sm" />
+                                        </DialogContent>
+                                    </Dialog>
+                                )}
                                 <ConnectWalletButton />
                             </div>
                         </div>

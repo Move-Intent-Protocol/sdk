@@ -13,6 +13,7 @@ interface SwapContextType {
     escrowBalance: Record<string, number>;
     refreshBalance: () => Promise<void>;
     depositToEscrow: (amount: number, tokenType: string, decimals?: number) => Promise<void>;
+    withdrawFromEscrow: (amount: number, tokenType: string, decimals?: number) => Promise<void>;
     buildAndSubmitIntent: (params: SwapParams) => Promise<any>;
     fetchOrderHistory: () => Promise<any[]>;
     cancelOrder: (order: any) => Promise<void>;
@@ -148,148 +149,223 @@ export function SwapProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const withdrawFromEscrow = async (amount: number, tokenType: string, decimals: number = 8) => {
+        if (!account || !wallet) throw new Error("Wallet not connected");
+        setIsLoading(true);
+
+        const factor = Math.pow(10, decimals);
+        const rawAmount = Math.floor(amount * factor);
+        const isFA = !tokenType.includes("::");
+
+        console.log("=== Withdrawing from Escrow ===");
+        console.log("Amount:", amount, "(raw:", rawAmount, ")");
+        console.log("Token Type:", tokenType, "Is FA:", isFA);
+
+        try {
+            const funcName = isFA ? "withdraw_fa" : "withdraw";
+            const functionName = `${INTENT_SWAP_ADDRESS}::escrow::${funcName}`;
+
+            const typeArguments = isFA ? [] : [tokenType];
+            const functionArguments = isFA
+                ? [INTENT_SWAP_ADDRESS, rawAmount, tokenType] // registry_addr, amount, asset
+                : [rawAmount];
+
+            const transactionData = {
+                function: functionName,
+                typeArguments,
+                functionArguments
+            };
+            console.log("Transaction Data:", JSON.stringify(transactionData, null, 2));
+
+            const response = await adapterSignTransaction(wallet, transactionData);
+            console.log("Transaction Response:", JSON.stringify(response, null, 2));
+
+            // Robust hash extraction
+            let txHash = "";
+            if (typeof response === 'string') {
+                txHash = response;
+            } else if (response.hash) {
+                txHash = response.hash;
+            } else if (response.transactionHash) {
+                txHash = response.transactionHash;
+            } else if (response.id) {
+                txHash = response.id;
+            } else if (response.args?.hash) {
+                txHash = response.args.hash;
+            }
+
+            if (!txHash) {
+                console.error("Failed to extract transaction hash from response:", response);
+                throw new Error("Invalid transaction response from wallet");
+            }
+
+            console.log("Extracted Hash:", txHash);
+
+            await client.waitForTransaction({ transactionHash: txHash });
+            console.log("Withdrawal Confirmed!");
+            await refreshBalance();
+        } catch (e) {
+            console.error("Withdraw Error:", e);
+            throw e;
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // ... (keep existing state)
 
     // Helper to persist orders
     const saveOrderLocally = (order: any) => {
         const saved = localStorage.getItem('intent_orders');
-        const orders = saved ? JSON.parse(saved) : [];
+        let orders = saved ? JSON.parse(saved) : [];
+
+        // Prevent duplicates: valid orders have unique hash and nonce, but we allow same nonce for different orders (until filled)
+        // Only filter by exact hash match to prevent duplicate entries of the SAME order
+        orders = orders.filter((o: any) => o.order_hash !== order.order_hash);
+
         orders.push(order);
         localStorage.setItem('intent_orders', JSON.stringify(orders));
     };
 
     const fetchOrderHistory = async () => {
         if (!account) return [];
+
+        // 1. Load Local Storage (Backup)
         const saved = localStorage.getItem('intent_orders');
-        if (!saved) return [];
+        let localOrders = saved ? JSON.parse(saved) : [];
 
-        let localOrders = JSON.parse(saved);
-        // Filter for current account
-        localOrders = localOrders.filter((o: any) => o.maker === account.address.toString());
+        // 2. Fetch Relayer Data (Source of Truth)
+        let relayerPending: any[] = [];
+        let relayerHistory: any[] = [];
 
-        // Fetch Relayer Activity to cross-reference
-        let relayerActivity: any[] = [];
         try {
-            const res = await axios.get(`${RELAYER_URL}/activity`);
-            if (res.data && res.data.orders) {
-                relayerActivity = res.data.orders;
+            const [pendingRes, historyRes] = await Promise.all([
+                axios.get(`${RELAYER_URL}/orders`),
+                axios.get(`${RELAYER_URL}/activity`)
+            ]);
+
+            if (pendingRes.data && pendingRes.data.orders) {
+                relayerPending = pendingRes.data.orders;
+            }
+            if (historyRes.data && historyRes.data.orders) {
+                relayerHistory = historyRes.data.orders;
             }
         } catch (e) {
-            console.warn("Failed to fetch relayer activity for status check", e);
+            console.warn("Failed to fetch relayer data, falling back to local only", e);
         }
 
-        // Create a map of Nonce -> RelayerOrder for the current user
-        // We match by Nonce because it's robust even if hash calculation differs
-        const relayerMap = new Map<string, any>();
-        relayerActivity.forEach((rOrder: any) => {
-            // Check if this relayer order belongs to current user
+        // 3. Merge Strategy
+        // Use order_hash as the unique key (now consistent across all sources)
+        // Priority: History (Final) > Pending (Active) > Local (Backup)
+        const orderMap = new Map<string, any>();
+
+        // A. Populate from Local first
+        localOrders.forEach((o: any) => {
+            if (o.maker === account.address.toString()) {
+                orderMap.set(o.order_hash, o);
+            }
+        });
+
+        // Helper to convert Relayer Order to Frontend Order format
+        const mapRelayerOrder = (rOrder: any, status: string) => {
+            const intent = rOrder.intent;
+            const isLimit = intent.start_buy_amount === undefined && intent.buy_amount !== undefined;
+
+            // Debugging ID inconsistency
+            // console.log("Mapping Relayer Order:", rOrder);
+
+            // Relayer inconsistency:
+            // Pending orders have 'id' (which is the hash)
+            // History orders have 'hash'
+            // Some might have 'orderHash'
+            const hash = rOrder.hash || rOrder.id || rOrder.orderHash;
+
+
+            return {
+                order_hash: hash,
+                maker: intent.maker,
+                sell_token: intent.sell_token_type || "UNKNOWN", // Relayer uses _type, frontend expects simple sometimes? No, frontend uses what it sent.
+                // We should try to preserve local "sell_token" (symbol) if possible, else derive.
+                // For now, if we have a local entry, we keep its "sell_token" (symbol). If new from Relayer, we might have type.
+
+                sell_amount: intent.sell_amount,
+                buy_token: intent.buy_token_type || "UNKNOWN",
+                buy_amount: isLimit ? intent.buy_amount : intent.end_buy_amount, // Approximate for market
+                status: status,
+                timestamp: rOrder.timestamp ? rOrder.timestamp / 1000 : Date.now() / 1000,
+                nonce: intent.nonce,
+                end_time: intent.expiry_time || intent.end_time,
+                is_limit_order: isLimit,
+                order_type: isLimit ? 'LIMIT' : 'MARKET'
+            };
+        };
+
+        // B. Merge Pending Orders (Active)
+        relayerPending.forEach((rOrder: any) => {
             if (rOrder.intent.maker === account.address.toString()) {
-                relayerMap.set(rOrder.intent.nonce.toString(), rOrder);
+                const hash = rOrder.id; // Pending orders use 'id' which is now the frontend's intentHash
+                const existing = orderMap.get(hash);
+                if (existing) {
+                    orderMap.set(hash, { ...existing, status: 'CREATED', order_type: existing.is_limit_order ? 'LIMIT' : 'MARKET' });
+                } else {
+                    orderMap.set(hash, mapRelayerOrder(rOrder, 'CREATED'));
+                }
             }
         });
 
-        // Update statuses
-        const updatedOrders = await Promise.all(localOrders.map(async (order: any) => {
-            try {
-                // 0. Check consistency with Relayer first (Trust Relayer for recent success)
-                const matchedRelayerOrder = relayerMap.get(order.nonce.toString());
+        // C. Merge History (Final)
+        // Note: Relayer history uses tx hash (commitedTxn.hash) which differs from intent hash
+        // We need to match by nonce to find the original local order and preserve its formatted amounts
+        relayerHistory.forEach((rOrder: any) => {
+            if (rOrder.intent.maker === account.address.toString()) {
+                const txHash = rOrder.hash; // Transaction hash from blockchain
+                const finalStatus = rOrder.success ? 'FILLED' : 'CANCELLED';
 
-                if (matchedRelayerOrder) {
-                    if (matchedRelayerOrder.success) {
-                        if (order.status !== 'FILLED') {
-                            refreshBalance(); // Update balance if status changing
-                        }
-                        // Update local hash to match Relayer (if different) to prevent future issues
-                        const finalHash = matchedRelayerOrder.hash || order.order_hash;
-                        return { ...order, status: 'FILLED', order_hash: finalHash };
-                    }
-                }
-
-                if (order.status === 'FILLED' || order.status === 'CANCELLED') return order;
-
-                // 1. Check is_order_filled on-chain
-                const isFilledVal = await client.view({
-                    payload: {
-                        function: `${INTENT_SWAP_ADDRESS}::swap::is_order_filled`,
-                        functionArguments: [INTENT_SWAP_ADDRESS, order.order_hash]
+                // Try to find existing local order by nonce (more reliable match)
+                let existingKey: string | null = null;
+                let existingOrder: any = null;
+                orderMap.forEach((order, key) => {
+                    if (order.nonce == rOrder.intent.nonce && order.maker === rOrder.intent.maker) {
+                        existingKey = key;
+                        existingOrder = order;
                     }
                 });
 
-                if (isFilledVal[0]) {
-                    if (order.status !== 'FILLED') {
+                if (existingOrder && existingKey) {
+                    if (existingOrder.status !== finalStatus && finalStatus === 'FILLED') {
                         refreshBalance();
-                        toast.success("Order Filled!", {
-                            description: `Your order for ${order.buy_amount} ${order.buy_token} has been filled.`,
-                            action: {
-                                label: "View on Explorer",
-                                onClick: () => window.open(`https://explorer.movementlabs.xyz/txn/${order.order_hash}?network=testnet`, '_blank')
-                            }
-                        });
                     }
-                    return { ...order, status: 'FILLED' };
+                    // Remove old entry and add with tx hash, preserving local formatted amounts
+                    orderMap.delete(existingKey);
+                    orderMap.set(txHash, {
+                        ...existingOrder,
+                        status: finalStatus,
+                        order_hash: txHash,
+                        order_type: existingOrder.is_limit_order ? 'LIMIT' : 'MARKET'
+                    });
+                } else {
+                    // No local match found, use Relayer data (will have raw amounts)
+                    orderMap.set(txHash, mapRelayerOrder(rOrder, finalStatus));
                 }
-
-                // 2. Check nonce for cancellation
-                const nonceVal = await client.view({
-                    payload: {
-                        function: `${INTENT_SWAP_ADDRESS}::swap::get_nonce`,
-                        functionArguments: [INTENT_SWAP_ADDRESS, order.maker]
-                    }
-                });
-                const currentNonce = Number(nonceVal[0]);
-
-                console.log(`Checking Order: ${order.order_hash} | Order Nonce: ${order.nonce} | Current Chain Nonce: ${currentNonce}`);
-
-                if (order.nonce && Number(order.nonce) < currentNonce) {
-                    // Only mark failed if Relayer explicitly says failed, OR if we are very old.
-                    // If matchedRelayerOrder exists and !success => It failed/reverted.
-                    if (matchedRelayerOrder && !matchedRelayerOrder.success) {
-                        return { ...order, status: 'FAILED' };
-                    }
-
-                    // If NOT in relayer activity, we assume Cancelled/Replaced (legacy logic)
-                    // But to be safer against hash mismatch on recently filled orders that haven't indexed yet,
-                    // we could hesitate. But user complaint is about PERSISTENT mismatch.
-                    // If Relayer has it as success, we handled it above.
-                    // If Relayer doesn't have it, and nonce passed... it's likely cancelled.
-                    console.log(`-> Marking as CANCELLED (Nonce ${order.nonce} < ${currentNonce})`);
-                    return { ...order, status: 'CANCELLED' };
-                }
-
-                // 3. Check expiration
-                const now = Date.now() / 1000;
-                if (order.end_time && now > order.end_time) {
-                    return { ...order, status: 'EXPIRED' };
-                }
-
-                return order;
-            } catch (e) {
-                console.warn("Failed to check status for", order.order_hash, e);
-                return order;
             }
-        }));
-
-        // Save updated statuses back to local storage
-        // We need to merge updatedOrders with the original list (which might contain other accounts' orders)
-        const currentSaved = localStorage.getItem('intent_orders');
-        const allOrders = currentSaved ? JSON.parse(currentSaved) : [];
-
-        // Create a map of updated orders for easy lookup
-        // Key by nonce + maker to be robust
-        const updatedMap = new Map(updatedOrders.map((o: any) => [o.nonce.toString() + o.maker, o]));
-
-        // Merge: Use updated version if exists, else keep original
-        const mergedOrders = allOrders.map((existing: any) => {
-            const key = existing.nonce.toString() + existing.maker;
-            if (updatedMap.has(key)) {
-                return updatedMap.get(key);
-            }
-            return existing;
         });
 
-        localStorage.setItem('intent_orders', JSON.stringify(mergedOrders));
+        // 4. Convert to Array and Sort
+        const mergedOrders = Array.from(orderMap.values())
+            .sort((a: any, b: any) => b.timestamp - a.timestamp);
 
-        return updatedOrders.sort((a: any, b: any) => b.timestamp - a.timestamp);
+        // 5. Update Local Storage (Sync Backup)
+        // We only save everything back to ensure local storage stays efficient
+        // But we want to preserve other users' orders too if we filtered earlier? 
+        // Ideally we just overwrite for this browser.
+
+        // Save updated orders for this user + preserve other users' orders
+        const otherUserOrders = localOrders.filter((o: any) => o.maker !== account.address.toString());
+        const infoToSave = [...otherUserOrders, ...mergedOrders];
+        localStorage.setItem('intent_orders', JSON.stringify(infoToSave));
+
+        return mergedOrders;
+
     };
 
     const cancelOrder = async (_order: any) => {
@@ -321,36 +397,44 @@ export function SwapProvider({ children }: { children: ReactNode }) {
         try {
             // 1. Build Intent Object
             const now = Math.floor(Date.now() / 1000);
-            const duration = 300; // 5 mins
-            // Fetch nonce from chain
+            const duration = params.duration || 300; // Default 5 mins if not specified
+            const isLimit = params.isLimitOrder === true;
+
+            // Fetch nonce from chain - dependent on order type
+            const moduleName = isLimit ? "limit_order" : "swap";
             const nonceVal = await client.view({
                 payload: {
-                    function: `${INTENT_SWAP_ADDRESS}::swap::get_nonce`,
+                    function: `${INTENT_SWAP_ADDRESS}::${moduleName}::get_nonce`,
                     functionArguments: [INTENT_SWAP_ADDRESS, account.address.toString()]
                 }
             });
             const nonce = nonceVal && nonceVal[0] ? nonceVal[0].toString() : "0";
-            console.log("=== On-Chain Nonce Fetched ===", nonce);
+            console.log(`=== On-Chain Nonce Fetched (${isLimit ? 'Limit' : 'Market'}) ===`, nonce);
 
             // Calculate amounts using actual token decimals
             const sellMultiplier = Math.pow(10, params.sellDecimals);
             const buyMultiplier = Math.pow(10, params.buyDecimals);
+
             const sellAmountRaw = Math.floor(params.sellAmount * sellMultiplier);
-            const startBuyAmountRaw = Math.floor(params.buyAmount * 1.05 * buyMultiplier); // 5% buffer start
-            const endBuyAmountRaw = Math.floor(params.buyAmount * buyMultiplier); // User requested min
 
+            // Amount Logic
+            let startBuyAmountRaw = 0;
+            let endBuyAmountRaw = 0;
+            let buyAmountRaw = 0;
 
-            // Normalize token types to match Move's type_name/string_utils::to_string output
-            // IMPORTANT: Move uses SHORT addresses (0x1, not 0x00...01)
-            // - type_info::type_name returns "0x1::aptos_coin::AptosCoin" (short)
-            // - string_utils::to_string(&@0x...) returns "@0x..." (short, with @ prefix)
+            if (isLimit) {
+                // FIXED Price - Exact amount user requested
+                // No buffer, no decay. 
+                buyAmountRaw = Math.floor(params.buyAmount * buyMultiplier);
+            } else {
+                // Dutch Auction
+                startBuyAmountRaw = Math.floor(params.buyAmount * 1.05 * buyMultiplier); // 5% buffer start
+                endBuyAmountRaw = Math.floor(params.buyAmount * buyMultiplier); // User requested min
+            }
+
+            // Normalize token types
             const canonicalizeType = (type: string): string => {
-                // For Coin types (contain "::"), keep as-is - Move uses short format
-                if (type.includes("::")) {
-                    return type;
-                }
-                // For FA types (pure address), prepend @ but keep short address format
-                // Move's string_utils::to_string outputs "@0x..." for addresses
+                if (type.includes("::")) return type;
                 return "@" + type;
             };
 
@@ -361,54 +445,115 @@ export function SwapProvider({ children }: { children: ReactNode }) {
             console.log(`Normalized Buy: ${params.buyToken} -> ${buyTokenNormalized}`);
 
             // Serialize for Hashing
-            const serializedBytes = serializeIntent(
-                account.address.toString(),
-                nonce,
-                sellTokenNormalized,
-                buyTokenNormalized,
-                sellAmountRaw,
-                startBuyAmountRaw,
-                endBuyAmountRaw,
-                now,
-                now + duration
-            );
+            let serializedBytes: Uint8Array;
+
+            if (isLimit) {
+                const { serializeLimitIntent } = await import('../lib/bcs');
+                serializedBytes = serializeLimitIntent(
+                    account.address.toString(),
+                    nonce,
+                    sellTokenNormalized,
+                    buyTokenNormalized,
+                    sellAmountRaw,
+                    buyAmountRaw,
+                    now + duration // expiry_time
+                );
+            } else {
+                serializedBytes = serializeIntent(
+                    account.address.toString(),
+                    nonce,
+                    sellTokenNormalized,
+                    buyTokenNormalized,
+                    sellAmountRaw,
+                    startBuyAmountRaw,
+                    endBuyAmountRaw,
+                    now,
+                    now + duration
+                );
+            }
 
             const intentHash = hashIntent(serializedBytes);
-            // Convert hash to hex string for storage
-            // hashIntent returns hex string from js-sha3
             const intentHashHex = "0x" + intentHash;
 
             // 2. Sign the Hash
-            // Note: Use signMessage. The wallet will prepend prefix. 
-            // If the verified check fails on chain, we know it's the prefix issue.
-            // For now, this is the standard flow.
             const response = await adapterSignMessage(wallet, {
                 message: intentHash,
                 nonce: nonce
             });
 
-            console.log("=== Wallet Sign Response ===", response);
-            console.log("=== Response Args (Full) ===", JSON.stringify(response.args, null, 2));
+            console.log("=== Wallet Sign Response ===", JSON.stringify(response, null, 2));
 
-            // Verify locally to debug
-            try {
-                // Log types first
-                console.log("response.signature:", response.signature);
-                console.log("response.args:", response.args);
-                if (response.args) {
-                    console.log("response.args.signature:", response.args.signature);
-                    console.log("response.args.fullMessage:", response.args.fullMessage);
-                    console.log("response.args.nonce:", response.args.nonce);
+            // Extract signature with multiple fallback paths for different wallet implementations
+            let signatureVal: any = null;
+
+            // Path 1: Standard aptos:signMessage response format
+            if (response.args?.signature) {
+                signatureVal = response.args.signature;
+            }
+            // Path 2: Direct signature property
+            else if (response.signature) {
+                signatureVal = response.signature;
+            }
+            // Path 3: Nightly wallet may return signature in fullMessage
+            else if ((response as any).fullMessage?.signature) {
+                signatureVal = (response as any).fullMessage.signature;
+            }
+            // Path 4: Some wallets return the signature directly in args
+            else if (response.args && typeof response.args === 'object') {
+                // Check if args itself contains the signature bytes
+                if (response.args.data || response.args instanceof Uint8Array) {
+                    signatureVal = response.args;
                 }
-            } catch (e) {
-                console.warn("Local verification error:", e);
+            }
+            // Path 5: The entire response might be the signature object
+            else if (response && typeof response === 'object' && !response.args) {
+                // Last resort: try using the response directly if it looks like a signature
+                if ((response as any).data || (response as any).bytes) {
+                    signatureVal = response;
+                }
             }
 
-            // 3. Prepare JSON for Relayer
-            const encoder = new TextEncoder();
+            console.log("=== Extracted signatureVal ===", signatureVal);
+
+            if (!signatureVal) throw new Error("Failed to extract signature from wallet response");
+
+            // Extract Hex String helper
             const toHex = (arr: Uint8Array) => Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
 
-            const intentJson = {
+            const getHexString = (val: any): string => {
+                if (!val) return "";
+                if (typeof val === 'string') return val;
+                if (val.args) return getHexString(val.args);
+                if (val.key) return getHexString(val.key);
+                if (val instanceof Uint8Array) {
+                    return "0x" + toHex(val);
+                }
+                if (val.data) return getHexString(val.data);
+                if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).every(k => !isNaN(parseInt(k)))) {
+                    return "0x" + Object.values(val).map((b: any) => parseInt(b).toString(16).padStart(2, '0')).join('');
+                }
+                if (Array.isArray(val)) {
+                    return "0x" + val.map(b => parseInt(b as any).toString(16).padStart(2, '0')).join('');
+                }
+                if (val.signature) return getHexString(val.signature);
+                return "";
+            };
+
+            const signatureStr = getHexString(signatureVal);
+            if (!signatureStr) throw new Error("Invalid signature format");
+            const publicKeyStr = getHexString(account.publicKey);
+
+            // Extract signing nonce
+            let signingNonceVal: any = nonce;
+            if (response.args?.nonce !== undefined) signingNonceVal = response.args.nonce;
+            else if ((response as any).nonce !== undefined) signingNonceVal = (response as any).nonce;
+
+            const encoder = new TextEncoder();
+            const signingNonceStrRaw = signingNonceVal.toString();
+            const signingNonceHex = "0x" + toHex(encoder.encode(signingNonceStrRaw));
+
+            // 3. Prepare JSON for Relayer
+            const intentJson: any = {
                 maker: account.address.toString(),
                 nonce: nonce,
                 sell_token_type: params.sellToken,
@@ -416,107 +561,27 @@ export function SwapProvider({ children }: { children: ReactNode }) {
                 sell_token: toHex(encoder.encode(sellTokenNormalized)),
                 buy_token: toHex(encoder.encode(buyTokenNormalized)),
                 sell_amount: sellAmountRaw.toString(),
-                start_buy_amount: startBuyAmountRaw.toString(),
-                end_buy_amount: endBuyAmountRaw.toString(),
                 start_time: now.toString(),
                 end_time: (now + duration).toString(),
-                buy_amount: startBuyAmountRaw.toString() // Use start_buy_amount to ensure sufficient fill at auction start
             };
 
-            // Helper to ensure hex string
-            const getHexString = (val: any): string => {
-                if (!val) return "";
-                if (typeof val === 'string') return val;
-
-                // Handle nested args (common in wallet-standard responses)
-                if (val.args) return getHexString(val.args);
-                if (val.key) return getHexString(val.key);
-
-                // Handle byte arrays
-                if (val instanceof Uint8Array) {
-                    return "0x" + Array.from(val).map(b => b.toString(16).padStart(2, '0')).join('');
-                }
-
-                // Handle object with 'data' property (aptos-labs/ts-sdk / Nightly often uses this)
-                // Recursively check data
-                if (val.data) {
-                    return getHexString(val.data);
-                }
-
-                // Handle Array-like object {0: x, 1: y}
-                if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val).every(k => !isNaN(parseInt(k)))) {
-                    return "0x" + Object.values(val).map((b: any) => parseInt(b).toString(16).padStart(2, '0')).join('');
-                }
-
-                if (Array.isArray(val)) {
-                    return "0x" + val.map(b => parseInt(b as any).toString(16).padStart(2, '0')).join('');
-                }
-
-                // Fallback: try to see if it has signature prop if we haven't checked already (though we check args above)
-                if (val.signature) return getHexString(val.signature);
-
-                return "";
-            };
-
-            // Verify response status if available (e.g. standard wallet adapter)
-            if ((response as any).status === 'Rejected' || (response as any).status === 'UserRejectedRequest') {
-                console.warn("User rejected signature request");
-                throw new Error("Signature rejected by user");
-            }
-
-            // Extract signature from response - try multiple paths
-            let signatureVal: any = null;
-            if (response.args?.signature) {
-                signatureVal = response.args.signature;
-            } else if (response.signature) {
-                signatureVal = response.signature;
-            } else if (response.args) {
-                // Nightly might embed signature directly in args
-                signatureVal = response.args;
-            }
-            console.log("Extracted signatureVal:", signatureVal);
-
-            if (!signatureVal) {
-                console.error("No signature found in response:", response);
-                throw new Error("Failed to extract signature from wallet response");
-            }
-
-            const signatureStr = getHexString(signatureVal);
-            if (!signatureStr) {
-                console.error("Failed to parse signature string from value:", signatureVal);
-                throw new Error("Invalid signature format");
-            }
-
-            const publicKeyStr = getHexString(account.publicKey);
-
-            console.log("Final signatureStr:", signatureStr);
-            console.log("Final publicKeyStr:", publicKeyStr);
-
-            // Extract signing nonce - Nightly uses 'nonce' in args
-            let signingNonceVal: any = nonce; // Default to intent nonce
-            if (response.args?.nonce !== undefined) {
-                signingNonceVal = response.args.nonce;
-                console.log("Using response.args.nonce:", signingNonceVal);
-            } else if ((response as any).nonce !== undefined) {
-                signingNonceVal = (response as any).nonce;
-                console.log("Using response.nonce:", signingNonceVal);
+            if (isLimit) {
+                intentJson.buy_amount = buyAmountRaw.toString();
+                intentJson.expiry_time = (now + duration).toString(); // Add alias for clarity if needed, Relayer checks intent structure
             } else {
-                console.log("Using default intent nonce:", signingNonceVal);
+                intentJson.start_buy_amount = startBuyAmountRaw.toString();
+                intentJson.end_buy_amount = endBuyAmountRaw.toString();
             }
-
-            // Convert nonce to hex string of its ASCII representation
-            // AIP-62 nonce is treated as a string in the message construction
-            const signingNonceStrRaw = signingNonceVal.toString();
-            const signingNonceHex = "0x" + toHex(encoder.encode(signingNonceStrRaw));
 
             const payload = {
                 intent: intentJson,
                 signature: signatureStr,
                 publicKey: publicKeyStr,
-                signingNonce: signingNonceHex
+                signingNonce: signingNonceHex,
+                intentHash: intentHashHex  // Send computed hash for consistency
             };
 
-            console.log("=== Submitting to Relayer ===");
+            console.log("=== Submitting to Relayer ===", isLimit ? "[LIMIT]" : "[MARKET]");
             console.log("Payload:", JSON.stringify(payload, null, 2));
 
             await axios.post(`${RELAYER_URL}/intents`, payload);
@@ -532,7 +597,8 @@ export function SwapProvider({ children }: { children: ReactNode }) {
                 status: 'CREATED',
                 timestamp: now,
                 nonce: nonce,
-                end_time: now + duration
+                end_time: now + duration,
+                is_limit_order: isLimit // Track type
             });
 
         } catch (e) {
@@ -544,7 +610,7 @@ export function SwapProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <SwapContext.Provider value={{ escrowBalance, refreshBalance, depositToEscrow, buildAndSubmitIntent, fetchOrderHistory, cancelOrder, isLoading, relayerUrl: RELAYER_URL }}>
+        <SwapContext.Provider value={{ escrowBalance, refreshBalance, depositToEscrow, withdrawFromEscrow, buildAndSubmitIntent, fetchOrderHistory, cancelOrder, isLoading, relayerUrl: RELAYER_URL }}>
             {children}
         </SwapContext.Provider>
     );

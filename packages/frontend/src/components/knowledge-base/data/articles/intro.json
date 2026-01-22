@@ -1,0 +1,15 @@
+{
+    "id": "intro-intent-protocol",
+    "categoryId": "getting-started",
+    "title": "Introduction to Intent Protocol",
+    "summary": "Discover the next generation of DeFi interaction where you express what you want, not how to execute it.",
+    "content": "<h2>What is Intent Protocol?</h2><p>Intent Protocol is a revolutionary DeFi platform built on the Movement blockchain. Unlike traditional DEXs where you execute specific transactions against a smart contract, Intent Protocol allows you to sign an <strong>Intent</strong>—a declaration of your desired outcome.</p><h3>Why Intents?</h3><p>Intents offer several major advantages over traditional transactions:</p><ul><li><strong>Gasless Experience:</strong> Makers (users) only sign messages. Solvers (relayers) pay the gas fees to execute the swap.</li><li><strong>MEV Protection:</strong> By defining your output, you protect yourself from front-running and slippage beyond your limit.</li><li><strong>Best Execution:</strong> Relayers compete to fill your order, ensuring you get the best market price available.</li></ul><h3>How to Use</h3><p>Simply connect your wallet, select the 'Market' or 'Limit' tab, choose your tokens, and sign the intent. Ideally, your order will be filled instantly!</p>",
+    "date": "Jan 21, 2026",
+    "author": "Antony",
+    "readTime": "3 min read",
+    "tags": [
+        "getting started",
+        "intents",
+        "defi"
+    ]
+}

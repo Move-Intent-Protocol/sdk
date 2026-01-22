@@ -1,0 +1,15 @@
+{
+    "id": "understanding-intents",
+    "categoryId": "features",
+    "title": "Deep Dive: How Intent Swaps Work",
+    "summary": "A technical look at the lifecycle of an intent, from signing to Dutch Auction settlement.",
+    "content": "<h2>The Intent Lifecycle</h2><p>When you place a Market Order on Intent Protocol, you aren't just sending a transaction. You are initiating a Dutch Auction.</p><h3>1. Quote & Signature</h3><p>The frontend calculates a price range starting slightly above market price (to incentivize relayers) and decaying over time. You sign this entire curve as a single EIP-712 message.</p><h3>2. The Dutch Auction</h3><p>Relayers monitor your order off-chain. As time passes, the price of your order becomes more attractive to them. <br/><br/><strong>Example:</strong> You want to sell 100 MOVE. <br/>- <strong>T+0s:</strong> Relayer must pay 105 USDC (Too expensive) <br/>- <strong>T+5s:</strong> Relayer must pay 101 USDC (Fair)<br/>- <strong>T+10s:</strong> Relayer must pay 99 USDC (Profitable!)</p><h3>3. Settlement</h3><p>The first Relayer to find the order profitable submits the transaction on-chain. The Move contract verifies your signature and atomically swaps the assets. You receive your USDC, and the Relayer receives your MOVE.</p>",
+    "date": "Jan 21, 2026",
+    "author": "Antony",
+    "readTime": "5 min read",
+    "tags": [
+        "technical",
+        "intents",
+        "dutch auction"
+    ]
+}

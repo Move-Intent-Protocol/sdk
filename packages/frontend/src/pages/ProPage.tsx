@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { TradingViewWidget, TokenPairSelector, ProOrderForm, TOKEN_PAIRS, TokenPair } from '@/components/pro';
+import { TradingViewWidget, TokenPairSelector, ProOrderForm, LimitOrderForm, TOKEN_PAIRS, TokenPair } from '@/components/pro';
 import { OrderList, Order } from '@/components/intent-swap/OrderList';
 import { OrderDetails } from '@/components/intent-swap/OrderDetails';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { TrendingUp, TrendingDown, Activity, Loader2 } from 'lucide-react';
 import { PriceService } from '@/lib/pyth';
@@ -40,18 +41,23 @@ export default function ProPage() {
     useEffect(() => {
         if (connected) {
             loadOrders();
+            // Poll every 5 seconds
+            const interval = setInterval(() => {
+                loadOrders(true);
+            }, 5000);
+            return () => clearInterval(interval);
         }
     }, [connected]);
 
-    const loadOrders = async () => {
-        setOrdersLoading(true);
+    const loadOrders = async (silent = false) => {
+        if (!silent) setOrdersLoading(true);
         try {
             const fetchedOrders = await fetchOrderHistory();
             setOrders(fetchedOrders);
         } catch (e) {
             console.error("Failed to load orders", e);
         } finally {
-            setOrdersLoading(false);
+            if (!silent) setOrdersLoading(false);
         }
     };
 
@@ -77,35 +83,8 @@ export default function ProPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     {/* Left Column: Chart + Recent Orders */}
                     <div className="lg:col-span-3 space-y-4">
-                        {/* Chart */}
-                        <TradingViewWidget
-                            symbol={selectedPair.tradingViewSymbol}
-                            theme="dark"
-                            height={500}
-                        />
 
-                        {/* Recent Orders - Below Chart */}
-                        <Card className="border-muted bg-card/50">
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Market Orders</CardTitle>
-                            </CardHeader>
-                            <Separator />
-                            <CardContent className="p-0">
-                                <OrderList
-                                    orders={orders}
-                                    isLoading={ordersLoading}
-                                    onSelectOrder={setSelectedOrder}
-                                    onCancelOrder={handleCancelOrder}
-                                    compact
-                                    itemsPerPage={5}
-                                />
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Right Sidebar - Token Selector & Order Form */}
-                    <div className="space-y-4">
-                        {/* Token Pair Selector */}
+                        {/* Token Pair Selector & Header */}
                         <Card className="border-muted bg-card/50">
                             <CardContent className="p-4">
                                 <div className="flex items-center justify-between">
@@ -139,8 +118,70 @@ export default function ProPage() {
                             </CardContent>
                         </Card>
 
-                        {/* Order Form */}
-                        <ProOrderForm selectedPair={selectedPair} />
+                        {/* Chart */}
+                        <TradingViewWidget
+                            symbol={selectedPair.tradingViewSymbol}
+                            theme="dark"
+                            height={500}
+                        />
+
+                        {/* Order History Tabs */}
+                        <Card className="border-muted bg-card/50">
+                            <CardHeader className="pb-0 pt-4 px-4">
+                                <Tabs defaultValue="market" className="w-full">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <TabsList>
+                                            <TabsTrigger value="market">Market Orders</TabsTrigger>
+                                            <TabsTrigger value="limit">Limit Orders</TabsTrigger>
+                                        </TabsList>
+                                    </div>
+                                    <Separator className="mb-4" />
+
+                                    <TabsContent value="market" className="m-0">
+                                        <OrderList
+                                            orders={orders}
+                                            filterType="MARKET"
+                                            isLoading={ordersLoading}
+                                            onSelectOrder={setSelectedOrder}
+                                            onCancelOrder={handleCancelOrder}
+                                            compact
+                                            itemsPerPage={5}
+                                        />
+                                    </TabsContent>
+                                    <TabsContent value="limit" className="m-0">
+                                        <OrderList
+                                            orders={orders}
+                                            filterType="LIMIT"
+                                            isLoading={ordersLoading}
+                                            onSelectOrder={setSelectedOrder}
+                                            onCancelOrder={handleCancelOrder}
+                                            compact
+                                            itemsPerPage={5}
+                                        />
+                                    </TabsContent>
+                                </Tabs>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                {/* Content moved inside tabs */}
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Right Sidebar - Order Forms */}
+                    <div className="space-y-4">
+                        {/* Order Forms Tabs */}
+                        <Tabs defaultValue="market" className="w-full">
+                            <TabsList className="grid w-full grid-cols-2 mb-4">
+                                <TabsTrigger value="market">Market</TabsTrigger>
+                                <TabsTrigger value="limit">Limit</TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="market">
+                                <ProOrderForm selectedPair={selectedPair} />
+                            </TabsContent>
+                            <TabsContent value="limit">
+                                <LimitOrderForm selectedPair={selectedPair} />
+                            </TabsContent>
+                        </Tabs>
                     </div>
                 </div>
             </div>

@@ -25,4 +25,6 @@ export interface SwapParams {
     slippage: number; // %
     sellDecimals: number; // Token decimals for sell token
     buyDecimals: number; // Token decimals for buy token
+    duration?: number; // Optional duration in seconds
+    isLimitOrder?: boolean; // If true, treat as fixed price limit order
 }

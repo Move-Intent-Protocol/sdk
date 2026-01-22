@@ -1,0 +1,15 @@
+{
+    "id": "limit-orders",
+    "categoryId": "features",
+    "title": "Using Limit Orders",
+    "summary": "Master permissionless limit orders to buy or sell at your exact price target.",
+    "content": "<h2>Non-Custodial Limit Orders</h2><p>Intent Protocol introduces a safer way to trade: Non-Custodial Limit Orders.</p><h3>How it differs from CEXs</h3><p>On a Centralized Exchange (CEX), you deposit funds into their wallet. If they go down, your funds are lost. <br/>On Intent Protocol, your funds stay in <strong>your wallet</strong> (or your personal escrow account) until the order is actually filled.</p><h3>Creating an Order</h3><ol><li>Navigate to the <strong>Limit</strong> tab on the Pro interface.</li><li>Enter your Sell amount and your desired Buy amount. This determines your limit price.</li><li>Set an expiration time (e.g., 24 hours).</li><li>Sign the intent.</li></ol><p>Your order is now broadcast to the Relayer network. It sits in the Order Book until the market price matches your target. Once matched, it executes automatically.</p>",
+    "date": "Jan 21, 2026",
+    "author": "Antony",
+    "readTime": "4 min read",
+    "tags": [
+        "limit orders",
+        "trading",
+        "features"
+    ]
+}

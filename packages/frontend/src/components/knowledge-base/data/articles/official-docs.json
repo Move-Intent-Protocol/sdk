@@ -1,0 +1,15 @@
+{
+    "id": "official-docs",
+    "categoryId": "documentation",
+    "title": "Official Documentation",
+    "summary": "Access the comprehensive technical documentation for integrators and developers.",
+    "content": "<h2>Developer Resources</h2><p>Building on top of Intent Protocol? We provide extensive documentation for our SDKs and APIs.</p><h3>Key Resources</h3><ul><li><strong>Intent Relayer API:</strong> Full reference for the REST/WebSocket API.</li><li><strong>TypeScript SDK:</strong> <code>@intent-protocol/client</code> for frontend integration.</li><li><strong>Smart Contracts:</strong> Architecture diagrams for the Move modules.</li></ul><p>Please visit our <a href=\"/docs\">Official Docs Site</a> (Coming Soon) or check the <code>/docs/official</code> folder in the repository.</p>",
+    "date": "Jan 21, 2026",
+    "author": "Engineering",
+    "readTime": "1 min read",
+    "tags": [
+        "docs",
+        "api",
+        "sdk"
+    ]
+}

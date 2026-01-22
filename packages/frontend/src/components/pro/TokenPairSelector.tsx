@@ -12,33 +12,50 @@ export interface TokenPair {
     baseSymbol: string;
     quoteSymbol: string;
     tradingViewSymbol: string;
-    icon?: string;
+    baseIcon?: string;
+    quoteIcon?: string;
 }
 
 export const TOKEN_PAIRS: TokenPair[] = [
     {
-        id: 'eth-usd',
+        id: 'weth-usdt',
         baseSymbol: 'ETH',
-        quoteSymbol: 'USD',
-        tradingViewSymbol: 'PYTH:ETHUSD',
+        quoteSymbol: 'USDT',
+        tradingViewSymbol: 'BINANCE:ETHUSDT',
+        baseIcon: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+        quoteIcon: "https://cryptologos.cc/logos/tether-usdt-logo.png"
     },
     {
-        id: 'apt-usd',
+        id: 'move-usdt',
         baseSymbol: 'MOVE',
-        quoteSymbol: 'USD',
-        tradingViewSymbol: 'PYTH:APTUSD',
+        quoteSymbol: 'USDT',
+        tradingViewSymbol: 'BINANCE:APTUSDT',
+        baseIcon: "https://raw.githubusercontent.com/kitelabs-io/mvmt-tokens/main/logos/MOVE.png",
+        quoteIcon: "https://cryptologos.cc/logos/tether-usdt-logo.png"
     },
     {
-        id: 'usdc-usd',
-        baseSymbol: 'USDC',
-        quoteSymbol: 'USD',
-        tradingViewSymbol: 'PYTH:USDCUSD',
+        id: 'weth-usdc',
+        baseSymbol: 'ETH',
+        quoteSymbol: 'USDC',
+        tradingViewSymbol: 'BINANCE:ETHUSDC',
+        baseIcon: "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+        quoteIcon: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png"
     },
     {
-        id: 'usdt-usd',
+        id: 'move-usdc',
+        baseSymbol: 'MOVE',
+        quoteSymbol: 'USDC',
+        tradingViewSymbol: 'BINANCE:APTUSDC',
+        baseIcon: "https://raw.githubusercontent.com/kitelabs-io/mvmt-tokens/main/logos/MOVE.png",
+        quoteIcon: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png"
+    },
+    {
+        id: 'usdt-usdc',
         baseSymbol: 'USDT',
-        quoteSymbol: 'USD',
-        tradingViewSymbol: 'PYTH:USDTUSD',
+        quoteSymbol: 'USDC',
+        tradingViewSymbol: 'BINANCE:USDTUSDC',
+        baseIcon: "https://cryptologos.cc/logos/tether-usdt-logo.png",
+        quoteIcon: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png"
     },
 ];
 
@@ -54,24 +71,34 @@ export function TokenPairSelector({ value, onSelect }: TokenPairSelectorProps) {
                 <Button
                     variant="ghost"
                     size="lg"
-                    className="h-12 px-4 gap-2 text-lg font-semibold hover:bg-muted"
+                    className="h-12 px-3 gap-2 text-lg font-semibold hover:bg-muted/50 data-[state=open]:bg-muted/50"
                 >
-                    <span className="text-xl">{value.baseSymbol}</span>
+                    <div className="flex items-center -space-x-2 mr-1">
+                        {value.baseIcon && <img src={value.baseIcon} alt={value.baseSymbol} className="w-6 h-6 rounded-full ring-2 ring-background z-10" />}
+                        {value.quoteIcon && <img src={value.quoteIcon} alt={value.quoteSymbol} className="w-6 h-6 rounded-full ring-2 ring-background" />}
+                    </div>
+                    <span>{value.baseSymbol}</span>
                     <span className="text-muted-foreground">/</span>
                     <span className="text-muted-foreground">{value.quoteSymbol}</span>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground opacity-50 ml-1" />
                 </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuContent align="start" className="w-[240px] p-2">
                 {TOKEN_PAIRS.map((pair) => (
                     <DropdownMenuItem
                         key={pair.id}
                         onClick={() => onSelect(pair)}
-                        className="cursor-pointer"
+                        className="cursor-pointer h-12 gap-3"
                     >
-                        <span className="font-medium">{pair.baseSymbol}</span>
-                        <span className="text-muted-foreground mx-1">/</span>
-                        <span className="text-muted-foreground">{pair.quoteSymbol}</span>
+                        <div className="flex items-center -space-x-2">
+                            {pair.baseIcon && <img src={pair.baseIcon} alt={pair.baseSymbol} className="w-5 h-5 rounded-full ring-2 ring-card z-10" />}
+                            {pair.quoteIcon && <img src={pair.quoteIcon} alt={pair.quoteSymbol} className="w-5 h-5 rounded-full ring-2 ring-card" />}
+                        </div>
+                        <div className="flex items-center">
+                            <span className="font-medium">{pair.baseSymbol}</span>
+                            <span className="text-muted-foreground mx-1">/</span>
+                            <span className="text-muted-foreground">{pair.quoteSymbol}</span>
+                        </div>
                     </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>

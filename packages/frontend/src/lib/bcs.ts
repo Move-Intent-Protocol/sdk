@@ -79,6 +79,48 @@ export function serializeIntent(
     return data;
 }
 
+export function serializeLimitIntent(
+    maker: string,
+    nonce: string,
+    sellToken: string,
+    buyToken: string,
+    sellAmount: number,
+    buyAmount: number,
+    expiryTime: number
+): Uint8Array {
+    let data = new Uint8Array(0);
+
+    // 1. Domain Separator (NEW)
+    data = BCS.append(data, new TextEncoder().encode("MOVE_LIMIT_ORDER_V1"));
+
+    // 2. Maker Address
+    const makerBytes = hexToBytes(maker);
+    if (makerBytes.length !== 32) {
+        // Pad for short addresses
+        const padded = new Uint8Array(32);
+        padded.set(makerBytes, 32 - makerBytes.length); // Right align
+        data = BCS.append(data, padded);
+    } else {
+        data = BCS.append(data, makerBytes);
+    }
+
+    // 3. Nonce
+    data = BCS.append(data, BCS.serializeU64(BigInt(nonce)));
+
+    // 4. Sell Token
+    data = BCS.append(data, BCS.serializeBytes(sellToken));
+
+    // 5. Buy Token
+    data = BCS.append(data, BCS.serializeBytes(buyToken));
+
+    // 6. Amounts & Expiry
+    data = BCS.append(data, BCS.serializeU64(BigInt(Math.floor(sellAmount))));
+    data = BCS.append(data, BCS.serializeU64(BigInt(Math.floor(buyAmount))));
+    data = BCS.append(data, BCS.serializeU64(BigInt(expiryTime)));
+
+    return data;
+}
+
 export function hashIntent(serialized: Uint8Array): string {
     return sha3_256(serialized); // Returns hex string
 }

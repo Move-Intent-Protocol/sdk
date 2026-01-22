@@ -1,0 +1,23 @@
+[
+    {
+        "id": "getting-started",
+        "title": "Getting Started",
+        "description": "Learn the basics of Intent Protocol and DeFi",
+        "articleCount": 2,
+        "icon": "book-open"
+    },
+    {
+        "id": "features",
+        "title": "Features",
+        "description": "Explore platform capabilities",
+        "articleCount": 2,
+        "icon": "lightbulb"
+    },
+    {
+        "id": "documentation",
+        "title": "Documentation",
+        "description": "Technical specs and developer guides",
+        "articleCount": 1,
+        "icon": "file-text"
+    }
+]

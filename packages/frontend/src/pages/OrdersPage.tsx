@@ -15,6 +15,10 @@ export default function OrdersPage() {
     const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
+    // Filters
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'HISTORY'>('ALL');
+    const [typeFilter, setTypeFilter] = useState<'ALL' | 'MARKET' | 'LIMIT'>('ALL');
+
     useEffect(() => {
         if (connected) {
             loadOrders();
@@ -25,6 +29,8 @@ export default function OrdersPage() {
         setIsLoading(true);
         try {
             const fetchedOrders = await fetchOrderHistory();
+            // Sort by timestamp desc
+            fetchedOrders.sort((a: Order, b: Order) => b.timestamp - a.timestamp);
             setOrders(fetchedOrders);
         } catch (e) {
             console.error("Failed to load orders", e);
@@ -45,6 +51,25 @@ export default function OrdersPage() {
         }
     };
 
+    // Apply Filters
+    const filteredOrders = orders.filter(order => {
+        // Status Filter
+        if (statusFilter === 'OPEN') {
+            if (order.status !== 'CREATED') return false;
+        } else if (statusFilter === 'HISTORY') {
+            if (order.status === 'CREATED') return false;
+        }
+
+        // Type Filter
+        if (typeFilter !== 'ALL') {
+            if (order.order_type !== typeFilter) {
+                // Handle legacy orders missing order_type (assume market)
+                if (!order.order_type && typeFilter !== 'MARKET') return false;
+            }
+        }
+        return true;
+    });
+
     if (!connected) {
         return (
             <div className="container mx-auto py-20 text-center">
@@ -54,16 +79,51 @@ export default function OrdersPage() {
     }
 
     return (
-        <div className="container mx-auto py-10 max-w-4xl">
-            <div className="flex justify-between items-center mb-8">
+        <div className="container mx-auto py-10 max-w-5xl">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                 <h1 className="text-3xl font-bold">Order History</h1>
-                <Link to="/swap">
-                    <Button>New Swap</Button>
-                </Link>
+                <div className="flex gap-2">
+                    <Link to="/swap">
+                        <Button>New Swap</Button>
+                    </Link>
+                </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="flex bg-muted p-1 rounded-lg">
+                    {['ALL', 'OPEN', 'HISTORY'].map((filter) => (
+                        <button
+                            key={filter}
+                            onClick={() => setStatusFilter(filter as any)}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${statusFilter === filter
+                                ? 'bg-background shadow-sm text-foreground'
+                                : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                        >
+                            {filter}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex bg-muted p-1 rounded-lg">
+                    {['ALL', 'MARKET', 'LIMIT'].map((filter) => (
+                        <button
+                            key={filter}
+                            onClick={() => setTypeFilter(filter as any)}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${typeFilter === filter
+                                ? 'bg-background shadow-sm text-foreground'
+                                : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                        >
+                            {filter === 'ALL' ? 'All Types' : filter}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             <OrderList
-                orders={orders}
+                orders={filteredOrders}
                 isLoading={isLoading}
                 onSelectOrder={setSelectedOrder}
                 onCancelOrder={handleCancel}

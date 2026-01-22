@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from '@/components/ui/slider';
 import { Loader2 } from 'lucide-react';
 import { useSwap } from '@/context/SwapContext';
@@ -12,7 +13,7 @@ import { PriceService } from '@/lib/pyth';
 import { PriceData, Token } from '@/types';
 import { toast } from 'sonner';
 
-interface ProOrderFormProps {
+interface LimitOrderFormProps {
     selectedPair: TokenPair;
 }
 
@@ -21,7 +22,6 @@ type OrderStep = 'idle' | 'depositing' | 'signing';
 
 // Map base symbol to actual token from TOKENS array
 const getTokenBySymbol = (symbol: string): Token | undefined => {
-    // Map chart symbols to actual token symbols
     const symbolMap: Record<string, string> = {
         'ETH': 'WETH.e',
         'USDC': 'USDC.e',
@@ -32,11 +32,14 @@ const getTokenBySymbol = (symbol: string): Token | undefined => {
     return TOKENS.find(t => t.symbol === mappedSymbol);
 };
 
-export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
+export function LimitOrderForm({ selectedPair }: LimitOrderFormProps) {
     const { buildAndSubmitIntent, isLoading, escrowBalance, depositToEscrow } = useSwap();
     const [orderSide, setOrderSide] = useState<OrderSide>('buy');
     const [amount, setAmount] = useState('');
     const [sliderValue, setSliderValue] = useState([0]);
+    const [limitPrice, setLimitPrice] = useState('');
+    const [isManualPrice, setIsManualPrice] = useState(false);
+    const [duration, setDuration] = useState('3600'); // Default 1 hour
     const [prices, setPrices] = useState<Record<string, PriceData>>({});
     const [priceLoading, setPriceLoading] = useState(false);
     const [orderStep, setOrderStep] = useState<OrderStep>('idle');
@@ -48,13 +51,32 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
             const data = await PriceService.getLatestPrices();
             setPrices(data);
             setPriceLoading(false);
+
+            // Auto-populate limit price with market price if not manually edited
+            if (!isManualPrice && data[selectedPair.baseSymbol]) {
+                const price = PriceService.formatPrice(data[selectedPair.baseSymbol]);
+                if (price) setLimitPrice(price.toFixed(4));
+            }
         };
         fetchPrices();
         const interval = setInterval(fetchPrices, 15000);
         return () => clearInterval(interval);
-    }, []);
+    }, [selectedPair.baseSymbol, isManualPrice]); // Refresh when pair or manual flag changes
+
+    // Reset manual flag and price when pair changes
+    useEffect(() => {
+        setIsManualPrice(false);
+        setLimitPrice('');
+    }, [selectedPair.baseSymbol]);
 
     const currentPrice = PriceService.formatPrice(prices[selectedPair.baseSymbol]);
+
+    const handlePercentOffset = (percent: number) => {
+        if (!currentPrice) return;
+        const newPrice = currentPrice * (1 + percent);
+        setLimitPrice(newPrice.toFixed(4));
+        setIsManualPrice(true);
+    };
 
     // Calculate if deposit is needed
     const getSellTokenAndAmount = () => {
@@ -63,11 +85,15 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
         if (!baseToken || !quoteToken || !amount) return { sellToken: null, sellAmount: 0 };
 
         const baseAmount = parseFloat(amount);
-        const quoteAmount = baseAmount * (currentPrice || 1);
+        const limitPriceVal = parseFloat(limitPrice) || currentPrice || 0;
 
-        const sellToken = orderSide === 'sell' ? baseToken : quoteToken;
-        const sellAmount = orderSide === 'sell' ? baseAmount : quoteAmount;
-        return { sellToken, sellAmount };
+        if (orderSide === 'buy') {
+            // Buy Base: Pay Quote
+            return { sellToken: quoteToken, sellAmount: baseAmount * limitPriceVal };
+        } else {
+            // Sell Base: Pay Base
+            return { sellToken: baseToken, sellAmount: baseAmount };
+        }
     };
 
     const { sellToken, sellAmount } = getSellTokenAndAmount();
@@ -79,8 +105,11 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
             toast.error('Please enter a valid amount');
             return;
         }
+        if (!limitPrice || isNaN(parseFloat(limitPrice))) {
+            toast.error('Please enter a valid limit price');
+            return;
+        }
 
-        // Get actual tokens from the TOKENS array
         const baseToken = getTokenBySymbol(selectedPair.baseSymbol);
         const quoteToken = getTokenBySymbol(selectedPair.quoteSymbol); // Dynamic Quote
 
@@ -90,15 +119,28 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
         }
 
         try {
-            // Determine sell/buy based on order side
-            const sellTokenFinal = orderSide === 'sell' ? baseToken : quoteToken;
-            const buyToken = orderSide === 'buy' ? baseToken : quoteToken;
+            const baseAmountVal = parseFloat(amount);
+            const limitPriceVal = parseFloat(limitPrice);
 
-            const baseAmount = parseFloat(amount);
-            const quoteAmount = baseAmount * (currentPrice || 1);
+            // For Limit Orders:
+            // BUY: Pay Quote (LimitPrice * Amount), Receive Base (Amount)
+            // SELL: Pay Base (Amount), Receive Quote (LimitPrice * Amount)
 
-            const sellAmountFinal = orderSide === 'sell' ? baseAmount : quoteAmount;
-            const buyAmount = orderSide === 'buy' ? baseAmount : quoteAmount;
+            let sellTokenFinal, buyToken, sellAmountFinal, buyAmount;
+
+            if (orderSide === 'buy') {
+                // Buy Base Token using Quote Token
+                sellTokenFinal = quoteToken;
+                buyToken = baseToken;
+                buyAmount = baseAmountVal; // User wants to buy specific amount of Base
+                sellAmountFinal = baseAmountVal * limitPriceVal; // User pays Quote
+            } else {
+                // Sell Base Token for Quote Token
+                sellTokenFinal = baseToken;
+                buyToken = quoteToken;
+                sellAmountFinal = baseAmountVal; // User sells specific amount of Base
+                buyAmount = baseAmountVal * limitPriceVal; // User wants Quote
+            }
 
             // Step 1: Check if deposit is needed
             const currentEscrowBalance = escrowBalance[sellTokenFinal.type] || 0;
@@ -121,25 +163,26 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
 
             // Step 2: Sign and submit intent
             setOrderStep('signing');
-            toast.info('Please sign the order intent in your wallet');
 
             await buildAndSubmitIntent({
                 sellToken: sellTokenFinal.type,
                 buyToken: buyToken.type,
                 sellAmount: sellAmountFinal,
                 buyAmount,
-                slippage: 0.5,
+                slippage: 0, // LIMIT ORDER implies strict price, no slippage buffer logic needed if we define specific amounts
+                // However, SwapContext might add 5% buffer to startBuyAmount.
+                // For a resting limit order, this is fine (it starts higher/lower and decays to our limit).
                 sellDecimals: sellTokenFinal.decimals,
                 buyDecimals: buyToken.decimals,
+                duration: parseInt(duration),
+                isLimitOrder: true
             });
 
-            toast.success('Order Submitted', {
-                description: `${orderSide === 'buy' ? 'Buying' : 'Selling'} ${amount} ${selectedPair.baseSymbol}`,
+            toast.success('Limit Order Submitted', {
+                description: `${orderSide === 'buy' ? 'Buying' : 'Selling'} ${amount} ${selectedPair.baseSymbol} at $${limitPriceVal} ${selectedPair.quoteSymbol}`,
             });
             setAmount('');
-            setSliderValue([0]);
         } catch (e: any) {
-            // Handle user rejection gracefully
             if (e.message?.includes('rejected') || e.message?.includes('cancelled')) {
                 toast.info('Transaction cancelled');
             } else {
@@ -155,13 +198,20 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
         if (orderStep === 'depositing') return "Depositing...";
         if (orderStep === 'signing' || isLoading) return "Signing...";
         if (!amount) return "Enter an amount";
-        if (needsDeposit) return `Deposit & ${orderSide === 'buy' ? 'Buy' : 'Sell'}`;
-        return `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${selectedPair.baseSymbol}`;
+        if (needsDeposit) return `Deposit & Limit ${orderSide === 'buy' ? 'Buy' : 'Sell'}`;
+        return `Limit ${orderSide === 'buy' ? 'Buy' : 'Sell'} ${selectedPair.baseSymbol}`;
     };
 
     return (
-        <Card className="border-muted bg-card/50">
+        <Card className="border-muted bg-card/50 mt-4">
             <CardContent className="p-4 space-y-4">
+                <div className="flex justify-between items-center mb-2">
+                    <div className="space-y-1">
+                        <h3 className="text-sm font-semibold">Limit Order</h3>
+
+                    </div>
+                </div>
+
                 {/* Buy/Sell Tabs */}
                 <Tabs value={orderSide} onValueChange={(v) => setOrderSide(v as OrderSide)}>
                     <TabsList className="grid w-full grid-cols-2">
@@ -192,6 +242,58 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
                             '-'
                         )}
                     </span>
+                </div>
+
+                {/* Limit Price Input */}
+                <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">Limit Price ({selectedPair.quoteSymbol})</label>
+                    <div className="flex gap-2">
+                        {orderSide === 'buy' ? (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2 py-0 border-green-500/30 text-green-500 hover:bg-green-500/10"
+                                    onClick={() => handlePercentOffset(-0.05)}
+                                >
+                                    -5%
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2 py-0 border-green-500/30 text-green-500 hover:bg-green-500/10"
+                                    onClick={() => handlePercentOffset(-0.10)}
+                                >
+                                    -10%
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2 py-0 border-red-500/30 text-red-500 hover:bg-red-500/10"
+                                    onClick={() => handlePercentOffset(0.05)}
+                                >
+                                    +5%
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2 py-0 border-red-500/30 text-red-500 hover:bg-red-500/10"
+                                    onClick={() => handlePercentOffset(0.10)}
+                                >
+                                    +10%
+                                </Button>
+                            </>
+                        )}
+                    </div>
+                    <Input
+                        type="number"
+                        placeholder="0.00"
+                        value={limitPrice}
+                        onChange={(e) => {
+                            setLimitPrice(e.target.value);
+                            setIsManualPrice(true);
+                        }}
+                        className="h-12 text-lg font-mono"
+                    />
                 </div>
 
                 {/* Amount Input */}
@@ -236,31 +338,44 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
 
                             let newAmount = 0;
                             if (orderSide === 'buy') {
-                                // Buying Base: Pay Quote. Limit by Quote Balance.
-                                // Amount Input is Base.
-                                // Base = (QuoteBalance * %) / Price
-                                if (currentPrice) {
-                                    newAmount = (balance * percentage) / currentPrice;
+                                // Buying Base: Pay Quote.
+                                const price = parseFloat(limitPrice) || currentPrice;
+                                if (price) {
+                                    newAmount = (balance * percentage) / price;
                                 }
                             } else {
-                                // Selling Base: Pay Base. Limit by Base Balance.
-                                // Amount Input is Base.
+                                // Selling Base: Pay Base.
                                 newAmount = balance * percentage;
                             }
 
-                            // Safe rounding down to avoid "Insufficient Balance"
+                            // Safe rounding down to evitar "Insufficient Balance" due to rounding up
                             const safeFixed = (num: number, decimals: number) => {
                                 const multiplier = Math.pow(10, decimals);
                                 return (Math.floor(num * multiplier) / multiplier).toFixed(decimals);
                             };
 
-                            // Format to manageable decimals (e.g. 6)
                             setAmount(newAmount > 0 ? safeFixed(newAmount, 6) : '');
                         }}
                         max={100}
                         step={25}
                         className="w-full"
                     />
+                </div>
+
+                {/* Duration Selector */}
+                <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">Duration</label>
+                    <Select value={duration} onValueChange={setDuration}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select duration" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="300">5 Minutes</SelectItem>
+                            <SelectItem value="3600">1 Hour</SelectItem>
+                            <SelectItem value="86400">24 Hours</SelectItem>
+                            <SelectItem value="604800">7 Days</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
 
                 {/* Summary: Pay & Receive */}
@@ -270,7 +385,7 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
                         <span className="font-mono">
                             {orderSide === 'buy' ? (
                                 <>
-                                    {amount && currentPrice ? (parseFloat(amount) * currentPrice).toFixed(6) : '0.00'}{' '}
+                                    {amount && limitPrice ? (parseFloat(amount) * parseFloat(limitPrice)).toFixed(6) : '0.00'}{' '}
                                     <span className="text-xs text-muted-foreground">{selectedPair.quoteSymbol}</span>
                                 </>
                             ) : (
@@ -291,7 +406,7 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
                                 </>
                             ) : (
                                 <>
-                                    {amount && currentPrice ? (parseFloat(amount) * currentPrice).toFixed(6) : '0.00'}{' '}
+                                    {amount && limitPrice ? (parseFloat(amount) * parseFloat(limitPrice)).toFixed(6) : '0.00'}{' '}
                                     <span className="text-xs text-green-500/70">{selectedPair.quoteSymbol}</span>
                                 </>
                             )}
@@ -306,7 +421,7 @@ export function ProOrderForm({ selectedPair }: ProOrderFormProps) {
                         : 'bg-red-600 hover:bg-red-700'
                         }`}
                     onClick={handleSubmit}
-                    disabled={isLoading || orderStep !== 'idle' || !amount}
+                    disabled={isLoading || orderStep !== 'idle' || !amount || !limitPrice}
                 >
                     {(isLoading || orderStep !== 'idle') ? (
                         <>

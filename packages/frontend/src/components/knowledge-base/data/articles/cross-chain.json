@@ -1,0 +1,15 @@
+{
+    "id": "cross-chain-future",
+    "categoryId": "getting-started",
+    "title": "The Future: Cross-Chain Swaps",
+    "summary": "A sneak peek at strict cross-chain atomic swaps coming soon to Intent Protocol.",
+    "content": "<h2>One Unified Liquidity Layer</h2><p>The vision of Intent Protocol extends beyond a single chain. We are actively developing strict Atomic cross-chain swaps.</p><h3>Coming Soon</h3><p>Soon, you will be able to express an intent like: <br/><em>\"I want to sell ETH on Ethereum and receive APT on Aptos.\"</em></p><p>This will be handled by a sophisticated network of Solvers who manage inventory across multiple chains, providing you with a seamless, single-click experience. Stay tuned for updates!</p>",
+    "date": "Jan 21, 2026",
+    "author": "Antony",
+    "readTime": "2 min read",
+    "tags": [
+        "roadmap",
+        "cross-chain",
+        "future"
+    ]
+}

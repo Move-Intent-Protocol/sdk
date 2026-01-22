@@ -26,10 +26,14 @@ export function OrderTracker() {
         };
     };
 
-    const formatAmount = (amount: string) => {
+    const formatAmount = (amount: number | string, token: any) => {
         if (!amount) return "0.00";
-        const val = parseFloat(amount);
-        return val.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        const val = typeof amount === 'string' ? parseFloat(amount) : amount;
+        // If amount is already formatted (small number), show as-is
+        // If amount is raw blockchain value (large number), divide by decimals
+        const isRaw = val > 1000000; // Heuristic: if > 1M, likely raw
+        const formatted = isRaw ? val / Math.pow(10, token.decimals) : val;
+        return formatted.toLocaleString(undefined, { maximumFractionDigits: 4 });
     };
 
     const loadOrders = async () => {
@@ -144,11 +148,11 @@ export function OrderTracker() {
                                         <div className="flex items-center justify-between gap-2 text-sm">
                                             <div className="flex items-center gap-2 bg-background/50 p-1.5 rounded-md flex-1">
                                                 {sToken.icon && <img src={sToken.icon} className="w-5 h-5 rounded-full" />}
-                                                <span className="font-medium">{formatAmount(order.sell_amount)}</span>
+                                                <span className="font-medium">{formatAmount(order.sell_amount, sToken)}</span>
                                             </div>
                                             <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
                                             <div className="flex items-center gap-2 bg-background/50 p-1.5 rounded-md flex-1 justify-end">
-                                                <span className="font-medium">{formatAmount(order.buy_amount)}</span>
+                                                <span className="font-medium">{formatAmount(order.buy_amount, bToken)}</span>
                                                 {bToken.icon && <img src={bToken.icon} className="w-5 h-5 rounded-full" />}
                                             </div>
                                         </div>

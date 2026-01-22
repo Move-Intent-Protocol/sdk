@@ -17,6 +17,16 @@ const getToken = (typeOrSymbol: string) => {
     };
 };
 
+const formatAmount = (amount: number | string, token: any) => {
+    if (!amount) return "0.00";
+    const val = typeof amount === 'string' ? parseFloat(amount) : amount;
+    // If amount is already formatted (small number), show as-is
+    // If amount is raw blockchain value (large number), divide by decimals
+    const isRaw = val > 1000000; // Heuristic: if > 1M, likely raw
+    const formatted = isRaw ? val / Math.pow(10, token.decimals) : val;
+    return formatted.toLocaleString(undefined, { maximumFractionDigits: 4 });
+};
+
 export interface Order {
     order_hash: string;
     maker: string;
@@ -26,6 +36,8 @@ export interface Order {
     buy_amount: number;
     status: 'CREATED' | 'FILLED' | 'CANCELLED' | 'EXPIRED';
     timestamp: number;
+    end_time?: number; // Added field
+    order_type?: 'MARKET' | 'LIMIT'; // Added field
 }
 
 interface OrderListProps {
@@ -35,21 +47,27 @@ interface OrderListProps {
     isLoading?: boolean;
     compact?: boolean;
     itemsPerPage?: number;
+    filterType?: 'MARKET' | 'LIMIT'; // Added filter prop
 }
 
-export function OrderList({ orders = [], onSelectOrder, onCancelOrder, isLoading, compact, itemsPerPage = 10 }: OrderListProps) {
+export function OrderList({ orders = [], onSelectOrder, onCancelOrder, isLoading, compact, itemsPerPage = 10, filterType }: OrderListProps) {
     const [currentPage, setCurrentPage] = useState(1);
+
+    // Filter orders based on type if filterType is provided
+    const filteredOrders = filterType
+        ? orders.filter(o => o.order_type === filterType || (!o.order_type && filterType === 'MARKET')) // Default legacy orders to MARKET
+        : orders;
 
     if (isLoading) {
         return <div className="text-center py-10">Loading orders...</div>;
     }
 
-    if (orders.length === 0) {
+    if (filteredOrders.length === 0) {
         return (
             <div className={compact ? 'py-4' : ''}>
                 <Card className={compact ? 'border-0 shadow-none' : ''}>
                     <CardContent className="py-10 text-center text-muted-foreground">
-                        No orders found.
+                        No {filterType ? filterType.toLowerCase() : ''} orders found.
                     </CardContent>
                 </Card>
             </div>
@@ -57,9 +75,9 @@ export function OrderList({ orders = [], onSelectOrder, onCancelOrder, isLoading
     }
 
     // Pagination Logic
-    const totalPages = Math.ceil(orders.length / itemsPerPage);
+    const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const paginatedOrders = orders.slice(startIndex, startIndex + itemsPerPage);
+    const paginatedOrders = filteredOrders.slice(startIndex, startIndex + itemsPerPage);
 
     const handlePrevious = () => setCurrentPage(p => Math.max(1, p - 1));
     const handleNext = () => setCurrentPage(p => Math.min(totalPages, p + 1));
@@ -76,6 +94,7 @@ export function OrderList({ orders = [], onSelectOrder, onCancelOrder, isLoading
                     <TableHeader>
                         <TableRow>
                             <TableHead>Type</TableHead>
+                            <TableHead>Price</TableHead>
                             <TableHead>Amount</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="hidden sm:table-cell">Time</TableHead>
@@ -86,17 +105,42 @@ export function OrderList({ orders = [], onSelectOrder, onCancelOrder, isLoading
                         {paginatedOrders.map((order) => (
                             <TableRow key={order.order_hash} className="cursor-pointer hover:bg-muted/50" onClick={() => onSelectOrder?.(order)}>
                                 <TableCell className="font-medium p-2 sm:p-4">
-                                    Swap
+                                    <Badge variant="outline" className="font-mono text-xs">
+                                        {order.order_type === 'LIMIT' ? 'LIMIT' : 'MARKET'}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell className="p-2 sm:p-4 font-mono text-sm">
+                                    {(() => {
+                                        const sellToken = getToken(order.sell_token);
+                                        const buyToken = getToken(order.buy_token);
+
+                                        const sVal = order.sell_amount / Math.pow(10, sellToken.decimals);
+                                        const bVal = order.buy_amount / Math.pow(10, buyToken.decimals);
+
+                                        if (!sVal || !bVal) return '-';
+
+                                        const isSellStable = sellToken.symbol.includes("USDC") || sellToken.symbol.includes("USDT");
+                                        const isBuyStable = buyToken.symbol.includes("USDC") || buyToken.symbol.includes("USDT");
+
+                                        // If selling Base for Quote (Stable), Price = Quote / Base
+                                        if (isBuyStable && !isSellStable) return `${(bVal / sVal).toFixed(4)}`;
+
+                                        // If buying Base with Quote (Stable), Price = Quote / Base
+                                        if (isSellStable && !isBuyStable) return `${(sVal / bVal).toFixed(4)}`;
+
+                                        // Fallback: Buy / Sell
+                                        return `${(bVal / sVal).toFixed(4)}`;
+                                    })()}
                                 </TableCell>
                                 <TableCell className="p-2 sm:p-4">
                                     <div className="flex flex-col gap-1">
                                         <div className="flex items-center gap-1.5">
                                             {getToken(order.sell_token).icon && <img src={getToken(order.sell_token).icon} className="w-4 h-4 rounded-full" />}
-                                            <span className="text-red-500 font-mono text-xs">-{order.sell_amount}</span>
+                                            <span className="text-red-500 font-mono text-xs">-{formatAmount(order.sell_amount, getToken(order.sell_token))}</span>
                                         </div>
                                         <div className="flex items-center gap-1.5">
                                             {getToken(order.buy_token).icon && <img src={getToken(order.buy_token).icon} className="w-4 h-4 rounded-full" />}
-                                            <span className="text-green-500 font-mono text-xs">+{order.buy_amount}</span>
+                                            <span className="text-green-500 font-mono text-xs">+{formatAmount(order.buy_amount, getToken(order.buy_token))}</span>
                                         </div>
                                     </div>
                                 </TableCell>

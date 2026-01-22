@@ -15,6 +15,11 @@ import ProPage from "./pages/ProPage"
 
 import TermsOfService from '@/pages/TermsOfService';
 import PrivacyPolicy from '@/pages/PrivacyPolicy';
+import { KnowledgeBasePage } from "./pages/KnowledgeBasePage"
+import { KBCategoryPage } from "./pages/KBCategoryPage"
+import { KBArticlePage } from "./pages/KBArticlePage"
+import { KBSearchPage } from "./pages/KBSearchPage"
+import { AddTokenPage } from "./pages/AddTokenPage"
 
 function App() {
     useLanguage();
@@ -77,8 +82,50 @@ function App() {
                                 <Footer />
                             </div>
                         } />
+
                         <Route path="/terms" element={<TermsOfService />} />
                         <Route path="/privacy" element={<PrivacyPolicy />} />
+
+
+                        <Route path="/add-token" element={
+                            <div className="flex flex-col min-h-screen">
+                                <Header />
+                                <main className="flex-1 container mx-auto p-8 mt-20">
+                                    <AddTokenPage />
+                                </main>
+                                <Footer />
+                            </div>
+                        } />
+
+                        {/* Knowledge Base Routes */}
+                        <Route path="/kb" element={
+                            <div className="flex flex-col min-h-screen">
+                                <Header />
+                                <KnowledgeBasePage />
+                                <Footer />
+                            </div>
+                        } />
+                        <Route path="/kb/search" element={
+                            <div className="flex flex-col min-h-screen">
+                                <Header />
+                                <KBSearchPage />
+                                <Footer />
+                            </div>
+                        } />
+                        <Route path="/kb/:categoryId" element={
+                            <div className="flex flex-col min-h-screen">
+                                <Header />
+                                <KBCategoryPage />
+                                <Footer />
+                            </div>
+                        } />
+                        <Route path="/kb/:categoryId/:articleId" element={
+                            <div className="flex flex-col min-h-screen">
+                                <Header />
+                                <KBArticlePage />
+                                <Footer />
+                            </div>
+                        } />
                     </Routes>
                 </SwapProvider>
             </div>
